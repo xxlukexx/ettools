@@ -19,6 +19,7 @@ classdef etGazeData < dynamicprops
         Events
         ScreenDimensions = [nan, nan]
         DistanceFromScreen = nan
+        AOIs = teCollection
     end
     
     properties (Dependent)
@@ -320,7 +321,11 @@ classdef etGazeData < dynamicprops
                 if obj.HasEvents
                     t1 = obj.Sample2Time(s1);
                     t2 = obj.Sample2Time(s2);
-                    idx_ev = obj.Events.Time >= t1 & obj.Events.Time <= t2;
+                    tab_events = obj.Events;
+                    if ~ismember('Time', tab_events.Properties.VariableNames)
+                        tab_events.Time = tab_events.timestamp - tab_events.timestamp(1);
+                    end
+                    idx_ev = tab_events.Time >= t1 & tab_events.Time <= t2;
                     val{s}.Events = obj.Events(idx_ev, :);
                 end
                 
@@ -370,6 +375,15 @@ classdef etGazeData < dynamicprops
         
         end
         
+        function val = SegmentByTimestamp(obj, t1, t2)
+            
+            % convert t1, t2 to zeroed time
+            t1 = t1 - obj.Timestamp(1);
+            t2 = t2 - obj.Timestamp(1);
+            val = obj.SegmentByTime(t1, t2);
+            
+        end
+        
         % dynamic props
         function AddVariable(obj, var, val)
         % adds a new variable to the object. This variable must be of size
@@ -391,7 +405,7 @@ classdef etGazeData < dynamicprops
         end
         
         % plotting
-        function PlotGaze(obj, h)
+        function fig = PlotGaze(obj, h)
             
             if ~exist('h', 'var') || isempty(h)
                 fig = figure;
@@ -399,9 +413,11 @@ classdef etGazeData < dynamicprops
                 fig = h;
             end
             
-            if isa(fig, 'figure')
+            if isa(fig, 'figure') || isa(fig, 'matlab.ui.Figure')
                 whitebg(fig, 'k')
             end
+            
+            cols = lines(2);
             
             % plot missing data
             hold on
@@ -418,12 +434,13 @@ classdef etGazeData < dynamicprops
             
             % plot x, y
             sc = scatter(obj.Time, obj.X);
-            sc.MarkerFaceColor = sc.MarkerEdgeColor;
+            sc.MarkerFaceColor = cols(1, :);
             sc.MarkerFaceAlpha = 0.5;
             hold on
             sc = scatter(obj.Time, obj.Y);
-            sc.MarkerFaceColor = sc.MarkerEdgeColor;
-            sc.MarkerFaceAlpha = 0.5;            
+            sc.MarkerFaceColor = cols(2, :);
+            sc.MarkerFaceAlpha = 0.5;  
+            col_y = sc.MarkerFaceColor;
             xlabel('Time (s)')
             ylabel('X/Y Position (normalised coords)')
             ylim([0, 1])
@@ -436,12 +453,14 @@ classdef etGazeData < dynamicprops
             x = 0;
             tx = [];
             if ~isempty(obj.Events)
+                event_times_zeroed = obj.Events.timestamp - obj.Events.timestamp(1);
                 ty = 0;
                 for i = 1:size(obj.Events, 1)
                     ox = x;
-                    x = obj.Events.timestamp(i);
+                    x = event_times_zeroed(i);
                     lab = obj.Events.data{i};
-                    if contains(lab, 'FRAME_CALC') ||...
+                    if ischar(lab) &&...
+                       contains(lab, 'FRAME_CALC') |...
                        contains(lab, 'NATSCENES_FRAME')
                         continue
                     end
@@ -459,24 +478,25 @@ classdef etGazeData < dynamicprops
                 end
             end            
             
-            legend('X', 'Y')
+            % plot AOIs
+            for a = 1:obj.AOIs.Count
+                
+                aoi_rect = obj.AOIs(a);
+                xl = xlim(gca);
+                t1 = xl(1);
+                t2 = xl(2);
+                
+                x_rect = [t1, aoi_rect(1), t2, aoi_rect(3)];
+                y_rect = [t1, aoi_rect(2), t2, aoi_rect(4)];
+                rectangle('Position', x_rect, 'FaceColor', [cols(1, :), 0.1], 'EdgeColor', cols(1, :))
+                rectangle('Position', y_rect, 'FaceColor', [cols(2, :), 0.1], 'EdgeColor', cols(2, :))
+                
+            end
+                
+                
+                
             
-%             % attemp to plot AOIs, in any found in events
-%             idx_aoi = cellfun(@(x) contains(x, 'ADDAOI'), obj.Events.Label);
-%             ev_aoi = obj.Events(idx_aoi, :);
-%             for a = 1:numAOIs
-%                 
-%                 parts = strsplit(ev_aoi.Label{a}, '_');
-%                 rect = [...
-%                     str2double(parts{2}),...
-%                     str2double(parts{3}),...
-%                     str2double(parts{4}),...
-%                     str2double(parts{5}),...
-%                     ];
-%                 
-%                 
-%                 
-%             end
+            legend('X', 'Y')
 
             % details
             pos = get(gca, 'InnerPosition');
@@ -620,29 +640,44 @@ classdef etGazeData < dynamicprops
         
         % utils
         function s = Time2Sample(obj, t)
-            if ~isscalar(t)
-                error('Timestamp must be scalar.')
-                % todo - make this not so
-            elseif t > obj.Duration
-                error('Requested timestamp %.2fs is greater than total duration (%.2fs)',...
-                    t, obj.Duration)
-            elseif t < 0 
-                error('Requested timestamp is negative.')
+            % t can be a scalar or vector of timestamps
+
+            % Check that t is a vector (scalar is a vector of length 1)
+            if ~isvector(t)
+                error('Timestamp input must be a vector.');
             end
-            s = find(obj.Time >= t, 1);
+
+            % Validate all timestamps are within valid bounds
+            if any(t > obj.Duration)
+                error('One or more timestamps exceed the total duration (%.2fs).', obj.Duration);
+            end
+            if any(t < 0)
+                error('One or more timestamps are negative.');
+            end
+
+            % For each timestamp, find the first sample index where obj.Time >= t.
+            % This uses arrayfun to apply the operation elementwise.
+            s = arrayfun(@(x) find(obj.Time >= x, 1), t);
         end
-        
-        function t = Sample2Time(obj, s)
-            if ~isscalar(s)
-                error('Sample index must be scalar.')
-                % todo - make this not so
-            elseif s > obj.NumSamples
-                error('Requested sample index %d is greater than total number of samples (%d)',...
-                    s, obj.NumSamples)
-            elseif s < 0 
-                error('Requested timestamp is negative.')
+
+        function t_out = Sample2Time(obj, s)
+            % s can be a scalar or vector of sample indices
+
+            % Check that s is a vector
+            if ~isvector(s)
+                error('Sample index input must be a vector.');
             end
-            t = obj.Time(s);
+
+            % Validate that the sample indices are within the valid range.
+            if any(s > obj.NumSamples)
+                error('One or more sample indices exceed the total number of samples (%d).', obj.NumSamples);
+            end
+            if any(s < 1)
+                error('One or more sample indices are less than 1.');
+            end
+
+            % Vectorized lookup: simply index into obj.Time.
+            t_out = obj.Time(s);
         end
         
         function cm = MakeCovarianceMatrix(obj, gridWidth, gridHeight)
@@ -850,7 +885,7 @@ classdef etGazeData < dynamicprops
         end
         
         function h = plot(obj)
-            obj.PlotGaze
+            h = obj.PlotGaze;
         end
         
         function scatter(obj)

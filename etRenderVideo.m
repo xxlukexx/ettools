@@ -22,12 +22,16 @@ function etRenderVideo(et, file_out, fps)
         fps = 30;
         fprintf('Defaulting to 30fps.\n');
     end
+
+    % Create a temporary filename in a safe folder
+    [~,~,ext] = fileparts(file_out);
+    temp_file = fullfile(tempdir, ['temp_movie_' char(java.util.UUID.randomUUID) ext]);
     
     % create frame times
-    ft = 0:1 / fps:et.Timeline.Duration;% - (1 / fps);
+    ft = 0:1 / fps:et.Timeline.Duration;
 
-    % create output movie file, prepare
-    movPtr = Screen('CreateMovie', et.ParentPtr, file_out, [], [], fps,...
+    % create output movie file to temp path
+    movPtr = Screen('CreateMovie', et.ParentPtr, temp_file, [], [], fps,...
         ':CodecType=VideoCodec=x264enc Keyframe=15 Videobitrate=24576');
     
     % loop through frames
@@ -38,4 +42,9 @@ function etRenderVideo(et, file_out, fps)
     
     Screen('FinalizeMovie', movPtr);
     
+    % Now copy the temp file to the requested output path
+    copyfile(temp_file, file_out);
+
+    % Delete the temporary file
+    delete(temp_file);
 end

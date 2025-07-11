@@ -1,10 +1,6 @@
 classdef etGazeDataBino < etGazeData
         
     methods
-        
-%         function obj = etGazeDataBino(varargin)
-%             obj = obj@etGazeData;
-%         end
     
         function obj = Import(obj, lx, ly, rx, ry, time, missingLeft,...
                 missingRight, absent, timestamps)
