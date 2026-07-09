@@ -99,6 +99,10 @@ function [smry, tab_tall, tab_wide, looks] = etSummariseIn(type, in, gaze,...
     
         % number of valid (not missing and not absent) samples per subject
         subNumValid = sum(~missing(:, s) & ~gaze.Absent(:, s), 1);
+        timeDelta = [0; diff(gaze.Time)];
+        timeDelta(~isfinite(timeDelta) | timeDelta < 0) = nan;
+        subValid = ~missing(:, s) & ~gaze.Absent(:, s);
+        subTotalScreenWatchTime = nansum(timeDelta(subValid));
         
         % get gaze for just this subject
         gaze_sub = gaze.FilterOneSubject(s);
@@ -114,7 +118,7 @@ function [smry, tab_tall, tab_wide, looks] = etSummariseIn(type, in, gaze,...
         
             smry{a, s}.id = id{s};
             smry{a, s}.propVal = propVal(s);
-            smry{a, s}.totalScreenWatchTime = propVal(s) * gaze.Duration;
+            smry{a, s}.totalScreenWatchTime = subTotalScreenWatchTime;
             smry{a, s}.aoi = lab{a};
             
             if isAOI
@@ -122,7 +126,6 @@ function [smry, tab_tall, tab_wide, looks] = etSummariseIn(type, in, gaze,...
                 smry{a, s}.triggered = any(in(:, s, a));
                 smry{a, s}.samplesInAOI = sum(in(:, s, a));
                 smry{a, s}.propInAOI = sum(in(:, s, a)) / subNumValid;
-                timeDelta = [0; diff(gaze.Time)];
                 smry{a, s}.timeInAOI = sum(timeDelta(in(:, s, a)));
                 smry{a, s}.firstSamp = find(in(:, s, a), 1);
                 smry{a, s}.firstTimeS = gaze.Time(smry{a, s}.firstSamp);
