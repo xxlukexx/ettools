@@ -15,6 +15,8 @@ classdef etGazeData < dynamicprops
         Pupil
         LeftPupil 
         RightPupil
+        LeftPupilMissing
+        RightPupilMissing
         PupilMissing
         Events
         ScreenDimensions = [nan, nan]
@@ -206,8 +208,10 @@ classdef etGazeData < dynamicprops
                     obj.RightMissing(s, :), obj.Absent(s, :));
                 
                 if obj.HasPupil
+                    [leftPupilMissing, rightPupilMissing] = ...
+                        localPupilMissingByEye(obj);
                     val.ImportPupil(obj.LeftPupil(s, :), obj.RightPupil(s, :),...
-                        obj.PupilMissing(s, :));
+                        leftPupilMissing(s, :), rightPupilMissing(s, :));
                 end
                 
             end
@@ -233,8 +237,10 @@ classdef etGazeData < dynamicprops
                     obj.RightY(:, sub), obj.Time, obj.LeftMissing(:, sub),...
                     obj.RightMissing(:, sub), obj.Absent(:, sub));
                 if obj.HasPupil
+                    [leftPupilMissing, rightPupilMissing] = ...
+                        localPupilMissingByEye(obj);
                     val.ImportPupil(obj.LeftPupil(:, sub), obj.RightPupil(:, sub),...
-                        obj.PupilMissing(:, sub));
+                        leftPupilMissing(:, sub), rightPupilMissing(:, sub));
                 end
                 
             end
@@ -309,10 +315,13 @@ classdef etGazeData < dynamicprops
                         obj.Absent(idx, :),...
                         obj.Timestamp(idx, :));
                     if obj.HasPupil
+                        [leftPupilMissing, rightPupilMissing] = ...
+                            localPupilMissingByEye(obj);
                         val{s}.ImportPupil(...
                             obj.LeftPupil(idx, :),...
                             obj.RightPupil(idx, :),...
-                            obj.PupilMissing(idx, :));
+                            leftPupilMissing(idx, :),...
+                            rightPupilMissing(idx, :));
                     end
                     
                 end        
@@ -947,5 +956,25 @@ classdef etGazeData < dynamicprops
 %     end
 
 end
-    
+
+
+function [leftMissing, rightMissing] = localPupilMissingByEye(obj)
+
+sharedMissing = obj.PupilMissing;
+if isempty(sharedMissing)
+    sharedMissing = obj.Missing;
+end
+
+leftMissing = obj.LeftPupilMissing;
+if isempty(leftMissing)
+    leftMissing = sharedMissing;
+end
+
+rightMissing = obj.RightPupilMissing;
+if isempty(rightMissing)
+    rightMissing = sharedMissing;
+end
+
+end
+
     
