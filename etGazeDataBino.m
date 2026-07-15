@@ -103,58 +103,74 @@ classdef etGazeDataBino < etGazeData
             
         end
         
-        function obj = ImportPupil(obj, pl, pr, pinvalid)
-            
-%             warning('Beta - this does not have all the error checking it needs.')
-            
+        function obj = ImportPupil(obj, pl, pr, leftMissing, rightMissing)
+        % Import left/right pupil data and their validity masks.
+        %
+        % Existing callers may supply one shared missing-data mask:
+        %   ImportPupil(pl, pr, pupilMissing)
+        %
+        % New callers may preserve independent per-eye validity:
+        %   ImportPupil(pl, pr, leftPupilMissing, rightPupilMissing)
+
             % only import pupil if gaze data already imported
             if isempty(obj)
                 error('Must import gaze data before importing pupil data.')
             end
-            
-            % if no valid passed, using the gaze missing variables
-            if ~exist('pinvalid', 'var') || isempty(pinvalid)
-                pinvalid = obj.Missing;
+
+            % If no pupil masks are supplied, use the corresponding gaze
+            % masks. A single supplied mask retains the historic API and is
+            % silently applied to both eyes.
+            if ~exist('leftMissing', 'var') || isempty(leftMissing)
+                leftMissing = obj.LeftMissing;
+                rightMissing = obj.RightMissing;
+            elseif ~exist('rightMissing', 'var') || isempty(rightMissing)
+                rightMissing = leftMissing;
             end
-            
-%             % check that all import args are same size
-%             if (~isscalar(pl) || ~isscalar(pr) || ~isscalar(pinvalid)) &&...
-%                     (~isvector(pl) || ~isvector(pr) || ~isvector(pinvalid))
-%                 error('All pupil data must be either scalar or vectors, and all must be the same size.')
-%             end
-            
-            % check that pupil and gaze data sizes match
-            if size(pl, 1) ~= obj.NumSamples
-                error('Gaze data (%d samples) / pupil data (%d samples) size mismatch.',...
-                    obj.NumSamples, size(pl, 1))
+
+            expectedSize = [obj.NumSamples, obj.NumSubjects];
+            if ~isnumeric(pl) || ~isnumeric(pr) || ...
+                    ~isequal(size(pl), expectedSize) || ~isequal(size(pr), expectedSize)
+                error(['Left and right pupil data must be numeric arrays of ', ...
+                    'size [%d x %d].'], expectedSize(1), expectedSize(2))
             end
-            
-            % check that pupil and gaze data sizes match
-            if size(pl, 2) ~= obj.NumSubjects
-                error('Gaze data (%d subjects) / pupil data (%d subjects) size mismatch.',...
-                    obj.NumSubjects, size(pl, 2))
-            end
-            
+
+            leftMissing = localPupilMissingMask(leftMissing, expectedSize, 'left');
+            rightMissing = localPupilMissingMask(rightMissing, expectedSize, 'right');
+
+            % A NaN pupil diameter is missing regardless of an external
+            % validity flag.
+            leftMissing = leftMissing | isnan(pl);
+            rightMissing = rightMissing | isnan(pr);
+
             obj.LeftPupil = pl;
             obj.RightPupil = pr;
-            obj.PupilMissing = pinvalid;
-            
-            % average left/right pupil
-            obj.Pupil = nanmean(cat(3, pl, pr), 3);
-            
+            obj.LeftPupilMissing = leftMissing;
+            obj.RightPupilMissing = rightMissing;
+            obj.PupilMissing = leftMissing & rightMissing;
+
+            % Average only the valid eyes. Keep the per-eye values intact so
+            % that validity and raw diameters can round-trip independently.
+            plForAverage = pl;
+            prForAverage = pr;
+            plForAverage(leftMissing) = nan;
+            prForAverage(rightMissing) = nan;
+            obj.Pupil = nanmean(cat(3, plForAverage, prForAverage), 3);
+
         end
-        
+
         function buffer = ExportTaskEngine2(obj)
-            
+
             buffer = nan(obj.NumSamples, 33);
-            
+
             buffer(:, 1) = obj.Timestamp;
             buffer(:, 2) = obj.LeftX;
             buffer(:, 3) = obj.LeftY;
             buffer(:, 4) = ~obj.LeftMissing;
             if ~isempty(obj.LeftPupil)
                 buffer(:, 5) = obj.LeftPupil;
-                buffer(:, 6) = ~obj.LeftMissing;
+                buffer(:, 6) = ~localStoredPupilMissing( ...
+                    obj.LeftPupilMissing, localStoredPupilMissing( ...
+                    obj.PupilMissing, obj.LeftMissing));
             else
                 buffer(:, 6) = false(obj.NumSamples, 1);
             end
@@ -165,7 +181,9 @@ classdef etGazeDataBino < etGazeData
             buffer(:, 19) = ~obj.RightMissing;
             if ~isempty(obj.RightPupil)
                 buffer(:, 20) = obj.RightPupil;
-                buffer(:, 21) = ~obj.RightMissing;
+                buffer(:, 21) = ~localStoredPupilMissing( ...
+                    obj.RightPupilMissing, localStoredPupilMissing( ...
+                    obj.PupilMissing, obj.RightMissing));
             else
                 buffer(:, 21) = false(obj.NumSamples, 1);
             end            
@@ -201,7 +219,8 @@ classdef etGazeDataBino < etGazeData
             rm = false(maxLen, numSubs);
             lp = nan(maxLen, numSubs);
             rp = nan(maxLen, numSubs);
-            pm = false(maxLen, numSubs);
+            lpm = true(maxLen, numSubs);
+            rpm = true(maxLen, numSubs);
             absent = true(maxLen, numSubs);
             for s = 1:numSubs
                 
@@ -215,7 +234,10 @@ classdef etGazeDataBino < etGazeData
                 rm(1:s2, s) = varargin{s}.RightMissing;
                 lp(1:s2, s) = varargin{s}.LeftPupil;
                 rp(1:s2, s) = varargin{s}.RightPupil;
-                pm(1:s2, s) = varargin{s}.PupilMissing;
+                lpm(1:s2, s) = localStoredPupilMissing( ...
+                    varargin{s}.LeftPupilMissing, varargin{s}.PupilMissing);
+                rpm(1:s2, s) = localStoredPupilMissing( ...
+                    varargin{s}.RightPupilMissing, varargin{s}.PupilMissing);
                 
             end
             
@@ -225,11 +247,37 @@ classdef etGazeDataBino < etGazeData
             val = etGazeDataBino;
             val.Import(lx, ly, rx, ry, t, lm, rm, absent);
             if ~all(isnan(lp(:)))
-                val.ImportPupil(lp, rp, pm)
+                val.ImportPupil(lp, rp, lpm, rpm)
             end
 
         end
              
     end
         
+end
+
+function mask = localPupilMissingMask(mask, expectedSize, eyeName)
+
+if isscalar(mask)
+    mask = repmat(logical(mask), expectedSize);
+elseif ~isequal(size(mask), expectedSize)
+    error('%s pupil missing mask must be scalar or size [%d x %d].', ...
+        eyeName, expectedSize(1), expectedSize(2))
+elseif ~(islogical(mask) || isnumeric(mask))
+    error('%s pupil missing mask must be logical or numeric.', eyeName)
+else
+    mask = logical(mask);
+end
+
+end
+
+
+function mask = localStoredPupilMissing(storedMask, fallbackMask)
+
+if isempty(storedMask)
+    mask = logical(fallbackMask);
+else
+    mask = logical(storedMask);
+end
+
 end
