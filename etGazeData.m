@@ -22,6 +22,7 @@ classdef etGazeData < dynamicprops
         ScreenDimensions = [nan, nan]
         DistanceFromScreen = nan
         AOIs = teCollection
+        PreserveInvalidCoordinates = false
     end
     
     properties (Dependent)
@@ -76,7 +77,11 @@ classdef etGazeData < dynamicprops
             parser.addParameter('eventBuffer', []);
             parser.addParameter('te1_preproc', []);
             parser.addParameter('te2', []);
+            parser.addParameter('PreserveInvalidCoordinates', false, ...
+                @(x) islogical(x) && isscalar(x));
             parser.parse(varargin{:});
+            obj.PreserveInvalidCoordinates = ...
+                parser.Results.PreserveInvalidCoordinates;
 
             % mainbuffer and timebuffer
             mb = parser.Results.mainBuffer;
@@ -104,8 +109,8 @@ classdef etGazeData < dynamicprops
                 ly = mb(:, 8);
                 rx = mb(:, 20);
                 ry = mb(:, 21);
-                missingL = isnan(lx) | lx == -1 | isnan(ly) | ly == -1;
-                missingR = isnan(rx) | rx == -1 | isnan(ry) | ry == -1;
+                missingL = localInvalidGazeCoordinates(lx, ly);
+                missingR = localInvalidGazeCoordinates(rx, ry);
                 time = etTimeBuffer2Secs(tb);
                 if isa(obj, 'etGazeDataBino')
                     % import bino gaze data 
@@ -116,6 +121,10 @@ classdef etGazeData < dynamicprops
                     obj.ImportPupil(lp, rp);    
                 elseif isa(obj, 'etGazeDataMono')
                     % average eyes, then import
+                    lx(missingL) = nan;
+                    ly(missingL) = nan;
+                    rx(missingR) = nan;
+                    ry(missingR) = nan;
                     x = nanmean(cat(3, lx, rx), 3);
                     y = nanmean(cat(3, ly, ry), 3);
                     missing = missingL & missingR;
@@ -162,7 +171,9 @@ classdef etGazeData < dynamicprops
                     tmp(s) = etGazeDataBino(...
                         'mainBuffer', mb,...
                         'timeBuffer', tb,...
-                        'eventBuffer', eb);
+                        'eventBuffer', eb, ...
+                        'PreserveInvalidCoordinates', ...
+                        obj.PreserveInvalidCoordinates);
                 end
                 obj = tmp;
             end
@@ -196,13 +207,15 @@ classdef etGazeData < dynamicprops
             
             if isa(obj, 'etGazeDataMono')
                 
-                val = etGazeDataMono;
+                val = etGazeDataMono('PreserveInvalidCoordinates', ...
+                    obj.PreserveInvalidCoordinates);
                 val.Import(obj.X(s, :), obj.Y(s, :), obj.Time(s, :),...
                     obj.Missing(s, :), obj.Absent(s, :));
                 
             elseif isa(obj, 'etGazeDataBino')
                 
-                val = etGazeDataBino;
+                val = etGazeDataBino('PreserveInvalidCoordinates', ...
+                    obj.PreserveInvalidCoordinates);
                 val.Import(obj.LeftX(s, :), obj.LeftY(s, :), obj.RightX(s, :),...
                     obj.RightY(s, :), obj.Time(s, :), obj.LeftMissing(s, :),...
                     obj.RightMissing(s, :), obj.Absent(s, :));
@@ -226,13 +239,15 @@ classdef etGazeData < dynamicprops
             
             if isa(obj, 'etGazeDataMono')
                 
-                val = etGazeDataMono;
+                val = etGazeDataMono('PreserveInvalidCoordinates', ...
+                    obj.PreserveInvalidCoordinates);
                 val.Import(obj.X(:, sub), obj.Y(:, sub), obj.Time(:, sub),...
                     obj.Missing(:, sub), obj.Absent(:, sub));
                 
             elseif isa(obj, 'etGazeDataBino')
                 
-                val = etGazeDataBino;
+                val = etGazeDataBino('PreserveInvalidCoordinates', ...
+                    obj.PreserveInvalidCoordinates);
                 val.Import(obj.LeftX(:, sub), obj.LeftY(:, sub), obj.RightX(:, sub),...
                     obj.RightY(:, sub), obj.Time, obj.LeftMissing(:, sub),...
                     obj.RightMissing(:, sub), obj.Absent(:, sub));
@@ -287,7 +302,8 @@ classdef etGazeData < dynamicprops
                     
                 if isa(obj, 'etGazeDataMono')
 
-                    val{s} = etGazeDataMono;
+                    val{s} = etGazeDataMono('PreserveInvalidCoordinates', ...
+                        obj.PreserveInvalidCoordinates);
                     val{s}.Import(...
                         obj.X(idx, :),...
                         obj.Y(idx, :),...
@@ -303,7 +319,8 @@ classdef etGazeData < dynamicprops
 
                 elseif isa(obj, 'etGazeDataBino')
 
-                    val{s} = etGazeDataBino;
+                    val{s} = etGazeDataBino('PreserveInvalidCoordinates', ...
+                        obj.PreserveInvalidCoordinates);
                     val{s}.Import(...
                         obj.LeftX(idx, :),...
                         obj.LeftY(idx, :),...
@@ -974,6 +991,14 @@ rightMissing = obj.RightPupilMissing;
 if isempty(rightMissing)
     rightMissing = sharedMissing;
 end
+
+end
+
+
+function missing = localInvalidGazeCoordinates(x, y)
+
+missing = ~isfinite(x) | ~isfinite(y) | ...
+    x < 0 | x > 1 | y < 0 | y > 1;
 
 end
 

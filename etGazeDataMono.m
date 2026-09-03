@@ -10,6 +10,7 @@ classdef etGazeDataMono < etGazeData
                     ~exist('time', 'var')
                 error('Must provide, at minimum, x, y, time.')
             end
+            if ~exist('missing', 'var'), missing = []; end
             
             if ~isvector(x) || ~isvector(y) || ~isvector(time)
                 error('x, y, and time must be vectors.')
@@ -23,27 +24,33 @@ classdef etGazeDataMono < etGazeData
                 error('x, y, and time must be of the same size.')
             end
             
-            obj.X = x;
-            obj.Y = y;
-            
-            % left x and y are just copies of x, y, duplicated for each eye
-            obj.LeftX = x;
-            obj.LeftY = y;
-            obj.RightX = x;
-            obj.RightY = y;
-            
-            obj.Time = time;
-            
-            % if missing is not specified, try to build from NaNs in the x,
-            % y data
-            if ~exist('missing', 'var') || isempty(missing)
-                obj.Missing = isnan(x) | isnan(y);
-                if any(obj.Missing)
-                    fprintf('Missing data derived from NaNs in gaze coords.\n')
-                end
-            else
-                obj.Missing = missing;
+            if isempty(missing)
+                missing = false(size(x));
+            elseif ~(isnumeric(missing) || islogical(missing)) || ...
+                    ~isequal(size(missing), size(x))
+                error('Missing mask must be numeric or logical and match x/y size.')
             end
+            missing = logical(missing) | localInvalidGazeCoordinates(x, y);
+
+            xForAnalysis = double(x);
+            yForAnalysis = double(y);
+            xForAnalysis(missing) = nan;
+            yForAnalysis(missing) = nan;
+            if obj.PreserveInvalidCoordinates
+                obj.X = x;
+                obj.Y = y;
+            else
+                obj.X = xForAnalysis;
+                obj.Y = yForAnalysis;
+            end
+
+            % left and right are copies for monocular gaze data
+            obj.LeftX = obj.X;
+            obj.LeftY = obj.Y;
+            obj.RightX = obj.X;
+            obj.RightY = obj.Y;
+            obj.Time = time;
+            obj.Missing = missing;
             
             % duplicate Missing for left and right eye
             obj.LeftMissing = obj.Missing;
@@ -91,4 +98,12 @@ classdef etGazeDataMono < etGazeData
 
    end
    
+end
+
+
+function missing = localInvalidGazeCoordinates(x, y)
+
+missing = ~isfinite(x) | ~isfinite(y) | ...
+    x < 0 | x > 1 | y < 0 | y > 1;
+
 end

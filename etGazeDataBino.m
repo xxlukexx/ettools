@@ -13,6 +13,8 @@ classdef etGazeDataBino < etGazeData
                     ~exist('time', 'var')
                 error('Must provide, at minimum, lx, ly, rx, ry and time.')
             end
+            if ~exist('missingLeft', 'var'), missingLeft = []; end
+            if ~exist('missingRight', 'var'), missingRight = []; end
             
             % ensure gaze is passed as either a vector (1 subject) or a
             % matrix (multiple subs)
@@ -21,8 +23,10 @@ classdef etGazeDataBino < etGazeData
             val_rx      = isvector(rx) || ismatrix(rx);
             val_ry      = isvector(ry) || ismatrix(ry);
             val_time    = isvector(time);
-            val_missL   = isvector(missingLeft) || ismatrix(missingLeft);
-            val_missR   = isvector(missingRight) || ismatrix(missingRight);
+            val_missL   = isempty(missingLeft) || isvector(missingLeft) || ...
+                ismatrix(missingLeft);
+            val_missR   = isempty(missingRight) || isvector(missingRight) || ...
+                ismatrix(missingRight);
             val_format  = all([val_lx, val_ly, val_rx, val_ry, val_time,...
                             val_missL, val_missR]);
                         
@@ -47,18 +51,22 @@ classdef etGazeDataBino < etGazeData
             
             % if missing is not specified, try to build from NaNs in the x,
             % y data
-            if ~exist('missingLeft', 'var') || isempty(missingLeft)
-                missingLeft = isnan(lx) | isnan(ly);
-                if any(missingLeft)
+            if isempty(missingLeft)
+                missingLeft = false(size(lx));
+                if any(localInvalidGazeCoordinates(lx, ly), 'all')
                     fprintf('Missing data from LEFT EYE derived from NaNs in gaze coords.\n')
                 end
             end
-            if ~exist('missingRight', 'var') || isempty(missingRight)
-                missingRight = isnan(rx) | isnan(ry);
-                if any(missingRight)
+            if isempty(missingRight)
+                missingRight = false(size(rx));
+                if any(localInvalidGazeCoordinates(rx, ry), 'all')
                     fprintf('Missing data from RIGHT EYE derived from NaNs in gaze coords.\n')
                 end
             end
+            missingLeft = logical(missingLeft) | ...
+                localInvalidGazeCoordinates(lx, ly);
+            missingRight = logical(missingRight) | ...
+                localInvalidGazeCoordinates(rx, ry);
             
             % if absent is not specified, assume all samples are present
             if ~exist('absent', 'var') || isempty(absent)
@@ -82,10 +90,25 @@ classdef etGazeDataBino < etGazeData
 
         % directly store left/right x, y, missing, absent, time
         
-            obj.LeftX = lx;
-            obj.LeftY = ly;
-            obj.RightX = rx;
-            obj.RightY = ry;
+            lxForAverage = double(lx);
+            lyForAverage = double(ly);
+            rxForAverage = double(rx);
+            ryForAverage = double(ry);
+            lxForAverage(missingLeft) = nan;
+            lyForAverage(missingLeft) = nan;
+            rxForAverage(missingRight) = nan;
+            ryForAverage(missingRight) = nan;
+            if obj.PreserveInvalidCoordinates
+                obj.LeftX = lx;
+                obj.LeftY = ly;
+                obj.RightX = rx;
+                obj.RightY = ry;
+            else
+                obj.LeftX = lxForAverage;
+                obj.LeftY = lyForAverage;
+                obj.RightX = rxForAverage;
+                obj.RightY = ryForAverage;
+            end
             obj.Time = time;
             obj.Timestamp = timestamps;
             obj.LeftMissing = missingLeft;
@@ -94,8 +117,8 @@ classdef etGazeDataBino < etGazeData
 
         % average eyes to form x, y
             
-            obj.X = nanmean(cat(3, lx, rx), 3);
-            obj.Y = nanmean(cat(3, ly, ry), 3);
+            obj.X = nanmean(cat(3, lxForAverage, rxForAverage), 3);
+            obj.Y = nanmean(cat(3, lyForAverage, ryForAverage), 3);
             
             % set .Missing to be samples where both left and right are
             % missing
@@ -279,5 +302,13 @@ if isempty(storedMask)
 else
     mask = logical(storedMask);
 end
+
+end
+
+
+function missing = localInvalidGazeCoordinates(x, y)
+
+missing = ~isfinite(x) | ~isfinite(y) | ...
+    x < 0 | x > 1 | y < 0 | y > 1;
 
 end
